@@ -13,6 +13,8 @@ Globals:
     # You can add LoggingConfig parameters such as the Logformat, Log Group, and SystemLogLevel or ApplicationLogLevel. Learn more here https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-function.html#sam-function-loggingconfig.
     LoggingConfig:
       LogFormat: JSON
+  Conditions:
+    IsProduction: !Equals [!Ref "AWS::StackName", "hello-prod"]
 Resources:
   HelloWorldFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -22,7 +24,8 @@ Resources:
       Runtime: nodejs20.x
       AutoPublishAlias: live
       DeploymentPreference:
-        Type: Canary10Percent5Minutes
+        Type: !If [IsProduction, "Canary10Percent5Minutes", "AllAtOnce"]
+        Alarms: !If [IsProduction, [!Ref CanaryErrorsAlarm], []]
       Architectures:
       - x86_64
       Events:
@@ -40,6 +43,25 @@ Resources:
         EntryPoints:
         - app.ts
 
+  CanaryErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Lambda function canary errors
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 2
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Period: 60
+      Statistic: Sum
+      Threshold: 0
+      Dimensions:
+        - Name: Resource
+          Value: !Sub "${HelloWorldFunction}:live"
+        - Name: FunctionName
+          Value: !Ref HelloWorldFunction
+        - Name: ExecutedVersion
+          Value: !GetAtt HelloWorldFunction.Version.Version
+          
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
